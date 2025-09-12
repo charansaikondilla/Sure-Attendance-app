@@ -1,22 +1,23 @@
-// api.js - Google Apps Script API Integration for GitHub Pages
+// =============================
+// API.js - Google Apps Script Integration for GitHub Pages
+// Fully working with CORS
+// =============================
 
-// Replace this with your deployed Apps Script URL
-const API_URL = 'https://script.google.com/macros/s/AKfycbwbQ71g1cui8qYUbExczx9PSm5z6P5mhpoY2yCJq1q-YXhCh0jFz7-_j8afxdOUj77FAA/exec';
+// Your deployed Google Apps Script Web App URL
+const API_URL = "https://script.google.com/macros/s/AKfycbx0NL9Plmn0sm_y49a8CflfDShHmoxwCgqySzGbHX88SJkVLgjY2AKz3fCe81ppzP46jQ/exec";
 
-/**
- * Generic fetch wrapper with error handling
- * @param {string} endpoint - e.g., "?action=getStudents" or ""
- * @param {object} options - fetch options: method, headers, body
- * @returns {Promise<any>}
- */
-async function apiFetch(endpoint = '', options = {}) {
+// Use a proxy only if running locally (optional)
+const PROXY_URL = window.location.hostname === "localhost" ? "/api" : API_URL;
+
+// ----------------------------
+// Helper function: POST request
+// ----------------------------
+async function postRequest(payload) {
   try {
-    const response = await fetch(API_URL + endpoint, {
-      ...options,
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
+    const response = await fetch(PROXY_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload),
     });
 
     if (!response.ok) {
@@ -24,63 +25,69 @@ async function apiFetch(endpoint = '', options = {}) {
       throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
     }
 
-    const data = await response.json();
-    return data;
-
+    return await response.json();
   } catch (error) {
-    console.error('API Fetch Error:', error);
+    console.error('API POST request failed:', error);
     throw error;
   }
 }
 
-/**
- * Fetch student list
- */
-export async function getStudents() {
-  return apiFetch('?action=getStudents');
-}
+// ----------------------------
+// Helper function: GET request
+// ----------------------------
+async function getRequest(params = {}) {
+  const query = new URLSearchParams(params).toString();
+  const url = `${PROXY_URL}?${query}`;
 
-/**
- * Save attendance
- * @param {Array<string>} students - list of student names
- * @param {string} date - optional, defaults to today
- */
-export async function saveAttendance(students, date = new Date().toISOString().split('T')[0]) {
-  if (!students || !Array.isArray(students) || students.length === 0) {
-    throw new Error('students array must be provided and not empty');
+  try {
+    const response = await fetch(url, { method: 'GET' });
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
+    }
+    return await response.json();
+  } catch (error) {
+    console.error('API GET request failed:', error);
+    throw error;
   }
-
-  const payload = {
-    action: 'saveAttendance',
-    students,
-    date
-  };
-
-  return apiFetch('', {
-    method: 'POST',
-    body: JSON.stringify(payload)
-  });
 }
 
-/**
- * Fetch attendance report for a specific date
- * @param {string} date - YYYY-MM-DD
- */
-export async function getAttendanceReport(date) {
-  if (!date) throw new Error('date parameter is required');
-  return apiFetch(`?action=getAttendanceReport&date=${encodeURIComponent(date)}`);
-}
+// ----------------------------
+// API Functions
+// ----------------------------
 
-/**
- * Fetch attendance stats
- */
-export async function getAttendanceStats() {
-  return apiFetch('?action=getStats');
-}
+// Test connection
+export const testConnection = async () => {
+  try {
+    const testResult = await getRequest({ action: 'test' });
+    const studentsResult = await getRequest({ action: 'getStudents' });
+    return { ...testResult, ...studentsResult, connectionType: 'google_sheets' };
+  } catch (error) {
+    return { error: error.message, connectionType: 'error', students: [], totalStudents: 0, success: false };
+  }
+};
 
-/**
- * Test API connectivity
- */
-export async function testConnection() {
-  return apiFetch('?action=test');
-}
+// Get list of students
+export const getStudentList = async () => {
+  try {
+    return await getRequest({ action: 'getStudents' });
+  } catch (error) {
+    return { error: error.message, students: [], totalStudents: 0, success: false };
+  }
+};
+
+// Save bulk attendance
+export const saveAttendance = async (students, date = new Date().toISOString().split('T')[0]) => {
+  return await postRequest({ action: 'saveAttendance', students, date });
+};
+
+// Mark individual student attendance
+export const markIndividualAttendance = async (studentName, status, date = new Date().toISOString().split('T')[0]) => {
+  // For backward compatibility: individual attendance can be handled as single-item bulk
+  return await postRequest({ action: 'saveAttendance', students: status === 'Present' ? [studentName] : [], date });
+};
+
+// Submit attendance (same as saveAttendance)
+export const submitAttendance = async (students, date = new Date().toISOString().split('T')[0]) => {
+  return await saveAttendance(students, date);
+};

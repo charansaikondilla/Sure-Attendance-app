@@ -1,0 +1,10 @@
+This is a sample PDF content for testing the attendance system.
+
+Present Students:
+John Smith
+Jane Doe
+Bob Johnson
+Alice Brown
+
+Note: This is just a text representation of what a PDF might contain.
+In a real PDF, the student names would be extracted from the PDF content.

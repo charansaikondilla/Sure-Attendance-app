@@ -6,7 +6,8 @@ import path from 'path'
 export default defineConfig(({ mode }) => {
   // Load env variables
   const env = loadEnv(mode, process.cwd(), '')
-  // Extract deployment path from VITE_API_URL
+
+  // Extract deployment path from VITE_API_URL (used in proxy)
   let deploymentPath = ''
   try {
     const url = new URL(env.VITE_API_URL)
@@ -14,8 +15,14 @@ export default defineConfig(({ mode }) => {
   } catch (e) {
     console.error('Invalid VITE_API_URL in .env:', env.VITE_API_URL)
   }
+
   return {
     plugins: [react()],
+
+    // ⚠️ Important for GitHub Pages
+    // This makes assets load from /Sure-Attendance-app/
+    base: '/Sure-Attendance-app/',
+
     server: {
       proxy: {
         '/api': {
@@ -24,17 +31,17 @@ export default defineConfig(({ mode }) => {
           rewrite: (p) => deploymentPath + (p.replace(/^\/api/, '')),
           configure: (proxy, options) => {
             proxy.on('error', (err, req, res) => {
-              console.error('❌ Proxy Error:', err.message);
-            });
+              console.error('❌ Proxy Error:', err.message)
+            })
             proxy.on('proxyReq', (proxyReq, req, res) => {
-              console.log('📤 API Request:', req.method, req.url);
-            });
+              console.log('📤 API Request:', req.method, req.url)
+            })
             proxy.on('proxyRes', (proxyRes, req, res) => {
-              const status = proxyRes.statusCode;
-              const emoji = status >= 200 && status < 300 ? '✅' : '❌';
-              console.log(`${emoji} API Response: ${status} - ${req.method} ${req.url}`);
-            });
-          },
+              const status = proxyRes.statusCode
+              const emoji = status >= 200 && status < 300 ? '✅' : '❌'
+              console.log(`${emoji} API Response: ${status} - ${req.method} ${req.url}`)
+            })
+          }
         }
       }
     }

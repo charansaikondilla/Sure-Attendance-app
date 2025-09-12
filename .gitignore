@@ -2,11 +2,11 @@
 node_modules/
 frontend/node_modules/
 
-# build output
+# build outputs
 dist/
 frontend/dist/
 
-# env
+# environment
 .env
 frontend/.env
 

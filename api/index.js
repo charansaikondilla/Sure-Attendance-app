@@ -1,0 +1,58 @@
+// Google Apps Script URL - Update this with your deployed script URL
+const GOOGLE_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwbQ71g1cui8qYUbExczx9PSm5z6P5mhpoY2yCJq1q-YXhCh0jFz7-_j8afxdOUj77FAA/exec';
+
+export default async function handler(req, res) {
+  // Enable CORS
+  res.setHeader('Access-Control-Allow-Origin', '*');
+  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+
+  // Handle preflight requests
+  if (req.method === 'OPTIONS') {
+    res.status(200).end();
+    return;
+  }
+
+  if (req.method !== 'GET') {
+    return res.status(405).json({ error: 'Method not allowed' });
+  }
+
+  try {
+    // Forward the request to Google Apps Script
+    const queryParams = new URLSearchParams({ action: 'test', ...req.query });
+    const response = await fetch(`${GOOGLE_SCRIPT_URL}?${queryParams}`, {
+      method: 'GET',
+    });
+
+    if (!response.ok) {
+      throw new Error(`Google Apps Script returned ${response.status}`);
+    }
+
+    const data = await response.json();
+
+    // Get students as well
+    const studentsQuery = new URLSearchParams({ action: 'getStudents' });
+    const studentsResponse = await fetch(`${GOOGLE_SCRIPT_URL}?${studentsQuery}`, {
+      method: 'GET',
+    });
+
+    let studentsData = { students: [], totalStudents: 0 };
+    if (studentsResponse.ok) {
+      studentsData = await studentsResponse.json();
+    }
+
+    res.status(200).json({
+      ...data,
+      ...studentsData,
+      connectionType: 'google_sheets_via_vercel'
+    });
+  } catch (error) {
+    res.status(500).json({
+      success: false,
+      error: error.message,
+      connectionType: 'error',
+      students: [],
+      totalStudents: 0
+    });
+  }
+}

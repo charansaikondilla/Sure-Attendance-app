@@ -6,8 +6,8 @@ export default defineConfig(() => {
   return {
     plugins: [react()],
 
-    // Base path for Vercel deployment
-    base: '/',
+    // Base path for GitHub Pages deployment (repo name)
+    base: '/Sure-Attendance-app/',
 
     server: {
       proxy: {

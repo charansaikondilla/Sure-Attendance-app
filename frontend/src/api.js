@@ -1,53 +1,79 @@
 // =============================
-// API.js - Vercel + Google Apps Script Integration
-// CORS handled by Vercel serverless functions
+// API.js - Google Apps Script Direct Integration
+// Uses JSONP for GET requests to bypass CORS
 // =============================
 
-// API base URL - works for both local development and Vercel production
-const API_BASE_URL = import.meta.env.PROD ? '' : 'http://localhost:5173';
+// Google Apps Script Web App URL
+const API_URL = 'https://script.google.com/macros/s/AKfycbwW8V1cR5tOWCg-fGLDjWzeEus87XgkwyoBPTSZBAdlfL5vIJpQRHGeH65jER8GHUvSfQ/exec';
 
-// Use Vercel API routes for production, direct Google Apps Script for local dev
-const API_URL = `${API_BASE_URL}/api`;
+// Timeout settings
+const API_TIMEOUT = 30000; // 30 seconds
+const SAVE_TIMEOUT = 120000; // 2 minutes for save operations
 
-// ----------------------------
-// Helper function: POST request
-// ----------------------------
-async function postRequest(endpoint, payload) {
-  try {
-    const response = await fetch(`${API_URL}${endpoint}`, {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify(payload),
-    });
+/**
+ * JSONP Request - Bypasses CORS by using script injection
+ * @param {string} url - Full URL with query params
+ * @param {number} timeout - Timeout in ms
+ * @returns {Promise<object>} Response data
+ */
+function jsonpRequest(url, timeout = API_TIMEOUT) {
+  return new Promise((resolve, reject) => {
+    const callbackName = 'jsonp_' + Date.now() + '_' + Math.random().toString(36).substr(2, 9);
+    
+    const timeoutId = setTimeout(() => {
+      cleanup();
+      reject(new Error('Request timeout'));
+    }, timeout);
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
-    }
+    const cleanup = () => {
+      clearTimeout(timeoutId);
+      delete window[callbackName];
+      const script = document.getElementById(callbackName);
+      if (script) script.remove();
+    };
 
-    return await response.json();
-  } catch (error) {
-    console.error('API POST request failed:', error);
-    throw error;
-  }
+    window[callbackName] = (data) => {
+      cleanup();
+      resolve(data);
+    };
+
+    const script = document.createElement('script');
+    script.id = callbackName;
+    script.src = url + (url.includes('?') ? '&' : '?') + 'callback=' + callbackName;
+    script.onerror = () => {
+      cleanup();
+      reject(new Error('Network error'));
+    };
+    document.head.appendChild(script);
+  });
 }
 
-// ----------------------------
-// Helper function: GET request
-// ----------------------------
-async function getRequest(endpoint, params = {}) {
-  const query = new URLSearchParams(params).toString();
-  const url = `${API_URL}${endpoint}${query ? '?' + query : ''}`;
+/**
+ * POST Request using fetch with text/plain to avoid preflight
+ * @param {object} data - Data to send
+ * @param {number} timeout - Timeout in ms
+ * @returns {Promise<object>} Response data
+ */
+async function postRequest(data, timeout = SAVE_TIMEOUT) {
+  const controller = new AbortController();
+  const timeoutId = setTimeout(() => controller.abort(), timeout);
 
   try {
-    const response = await fetch(url, { method: 'GET' });
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(`HTTP ${response.status}: ${response.statusText} - ${errorText}`);
-    }
+    const response = await fetch(API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+      body: JSON.stringify(data),
+      signal: controller.signal,
+      redirect: 'follow'
+    });
+
+    clearTimeout(timeoutId);
     return await response.json();
   } catch (error) {
-    console.error('API GET request failed:', error);
+    clearTimeout(timeoutId);
+    if (error.name === 'AbortError') {
+      throw new Error('Request timeout - data may have been saved, please check your sheet');
+    }
     throw error;
   }
 }
@@ -56,35 +82,76 @@ async function getRequest(endpoint, params = {}) {
 // API Functions
 // ----------------------------
 
-// Test connection
-export const testConnection = async () => {
+/**
+ * Test connection to Google Apps Script
+ */
+export async function testConnection() {
   try {
-    return await getRequest('');
+    console.log('Testing connection...');
+    const result = await jsonpRequest(`${API_URL}?action=test`);
+    console.log('Connection test result:', result);
+    return result;
   } catch (error) {
-    return { error: error.message, connectionType: 'error', students: [], totalStudents: 0, success: false };
+    console.error('Connection test failed:', error);
+    return { success: false, error: error.message };
   }
-};
+}
 
-// Get list of students
-export const getStudentList = async () => {
+/**
+ * Get list of students from Google Sheets
+ */
+export async function getStudentList() {
   try {
-    return await getRequest('/students');
+    console.log('Fetching student list...');
+    const result = await jsonpRequest(`${API_URL}?action=getStudents`);
+    console.log('Received students:', result.students?.length || 0);
+    return result;
   } catch (error) {
-    return { error: error.message, students: [], totalStudents: 0, success: false };
+    console.error('Failed to fetch students:', error);
+    return { success: false, error: error.message, students: [], studentNames: [] };
   }
-};
+}
 
-// Save bulk attendance
-export const saveAttendance = async (students, date = new Date().toISOString().split('T')[0]) => {
-  return await postRequest('/attendance', { action: 'saveAttendance', students, date });
-};
+/**
+ * Save bulk attendance to Google Sheets
+ * @param {string[]} students - Array of present student names
+ * @param {string} date - Date in YYYY-MM-DD format
+ */
+export async function saveAttendance(students, date) {
+  try {
+    if (!date) date = new Date().toISOString().split('T')[0];
+    console.log(`Saving attendance for ${students.length} students on ${date}...`);
+    
+    const result = await postRequest({
+      action: 'saveAttendance',
+      students: students,
+      date: date
+    });
+    
+    console.log('Save result:', result);
+    return result;
+  } catch (error) {
+    console.error('Failed to save attendance:', error);
+    throw error;
+  }
+}
 
-// Mark individual student attendance
-export const markIndividualAttendance = async (studentName, status, date = new Date().toISOString().split('T')[0]) => {
-  return await postRequest('/individual', { action: 'saveAttendance', students: status === 'Present' ? [studentName] : [], date });
-};
+/**
+ * Submit attendance (alias for saveAttendance)
+ */
+export async function submitAttendance(attendanceData) {
+  const students = attendanceData.students || attendanceData;
+  const date = attendanceData.date || new Date().toISOString().split('T')[0];
+  return saveAttendance(students, date);
+}
 
-// Submit attendance (same as saveAttendance)
-export const submitAttendance = async (students, date = new Date().toISOString().split('T')[0]) => {
-  return await saveAttendance(students, date);
-};
+/**
+ * Mark individual student attendance
+ */
+export async function markIndividualAttendance(studentName, date) {
+  if (!date) date = new Date().toISOString().split('T')[0];
+  return saveAttendance([studentName], date);
+}
+
+// Export API URL for reference
+export { API_URL };
